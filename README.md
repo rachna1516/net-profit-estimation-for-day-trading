@@ -50,6 +50,7 @@ Each script accepts `--help` for all options.
 ### Tests
 
 ```bash
+pip install -r requirements-dev.txt
 pytest
 ```
 
