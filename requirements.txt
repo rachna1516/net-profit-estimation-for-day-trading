@@ -1,0 +1,12 @@
+numpy
+pandas
+scikit-learn
+statsmodels
+matplotlib
+seaborn
+torch
+tqdm
+streamlit
+pytest
+# optional, only to download fresh data:
+# yfinance

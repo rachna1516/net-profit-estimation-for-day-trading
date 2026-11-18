@@ -1,0 +1,6 @@
+.venv/
+__pycache__/
+.pytest_cache/
+# generated outputs
+*.png
+EDA_distribution_graphs/

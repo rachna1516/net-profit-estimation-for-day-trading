@@ -1,82 +1,98 @@
-import pandas as pd
-import numpy as np
-import seaborn as sns
+import argparse
+from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")  # render to files; no display needed
 import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 from sklearn.preprocessing import MinMaxScaler
 
-df = pd.read_csv('data.csv')
-df['Datetime'] = pd.to_datetime(df['Datetime'])
-df.set_index('Datetime', inplace=True)
+from data_utils import FEATURE_COLUMNS, load_data
 
-print(df.describe())
-print(f"number of null values: {df.isna().sum().sum()}")
 
-# normalizing data
-scaler = MinMaxScaler()
-scaled_features = scaler.fit_transform(df[['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume']])
-df_scaled = pd.DataFrame(scaled_features, columns=['Open', 'High', 'Low', 'Close', 'Adj Close', 'Volume'], index=df.index)
+def add_indicators(df: pd.DataFrame, short_window: int = 20, long_window: int = 50,
+                   vol_window: int = 21) -> pd.DataFrame:
+    """Return a copy of ``df`` with returns, moving averages and volatility columns."""
+    out = df.copy()
+    out["Returns"] = out["Open"].pct_change()
+    out["Cumulative_Returns"] = (1 + out["Returns"]).cumprod()
+    out[f"SMA_{short_window}"] = out["Open"].rolling(window=short_window).mean()
+    out[f"SMA_{long_window}"] = out["Open"].rolling(window=long_window).mean()
+    out["Volatility"] = out["Returns"].rolling(window=vol_window).std()
+    return out
 
-# Plot time series
-plt.figure(figsize=(10, 6))
-plt.plot(df_scaled['Open'])
-plt.title('Opening Price Over Time')
-plt.xlabel('Date')
-plt.ylabel('Scaled Open Price')
-plt.savefig('EDA_distribution_graphs/open_trend.png')
 
-plt.figure(figsize=(10, 6))
-plt.plot(df_scaled['Close'])
-plt.title('closing Price Over Time')
-plt.xlabel('Date')
-plt.ylabel('Scaled close Price')
-plt.savefig('EDA_distribution_graphs/close_trend.png')
+def _save(fig, out_dir: Path, name: str) -> Path:
+    path = out_dir / name
+    fig.savefig(path)
+    plt.close(fig)
+    return path
 
-plt.figure(figsize=(10, 6))
-plt.plot(df_scaled['High'])
-plt.title('High Price Over Time')
-plt.xlabel('Date')
-plt.ylabel('Scaled High Price')
-plt.savefig('EDA_distribution_graphs/high_trend.png')
 
-plt.figure(figsize=(10, 6))
-plt.plot(df_scaled['Low'])
-plt.title('Low Price Over Time')
-plt.xlabel('Date')
-plt.ylabel('Scaled Low Price')
-plt.savefig('EDA_distribution_graphs/low_trend.png')
+def run_eda(df: pd.DataFrame, out_dir="EDA_distribution_graphs") -> list:
+    """Print summary statistics and save EDA charts; returns the saved file paths."""
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    saved = []
 
-# plotting correlation matrix
-corr = df[['Open', 'High', 'Low', 'Close', 'Volume']].corr()
-sns.heatmap(corr, annot=True, cmap='coolwarm')
-plt.title('Correlation Matrix')
-plt.savefig('EDA_distribution_graphs/correlation_matrix.png')
+    print(df.describe())
+    print(f"number of null values: {df.isna().sum().sum()}")
 
-# plotting volatality (SD of returns)
-df['Returns'] = df['Open'].pct_change()
-df['Returns'].rolling(window=21).std().plot(figsize=(14, 7))
-plt.title('Rolling 21-days Volatility')
-plt.xlabel('Date')
-plt.ylabel('Volatility')
-plt.savefig('EDA_distribution_graphs/open_volatality.png')
+    scaled = pd.DataFrame(
+        MinMaxScaler().fit_transform(df[FEATURE_COLUMNS]), columns=FEATURE_COLUMNS, index=df.index
+    )
 
-# Moving Averages
-df['SMA_20'] = df['Open'].rolling(window=20).mean()
-df['SMA_50'] = df['Open'].rolling(window=50).mean()
-# Daily Returns
-df['Returns'] = df['Open'].pct_change()
-# Cumulative Returns
-df['Cumulative_Returns'] = (1 + df['Returns']).cumprod()
-# Plot historical prices with moving averages
-plt.figure(figsize=(14, 7))
-plt.plot(df['Open'], label='Open Price')
-plt.plot(df['SMA_20'], label='20-Day SMA')
-plt.plot(df['SMA_50'], label='50-Day SMA')
-plt.title('Open Price with Moving Averages')
-plt.legend()
-plt.savefig('EDA_distribution_graphs/open_price_moving_avgs.png')
-# Returns distribution
-sns.histplot(df['Returns'].dropna(), bins=50, kde=True)
-plt.title('Distribution of Daily Returns')
-plt.xlabel('Returns')
-plt.ylabel('Frequency')
-plt.savefig('EDA_distribution_graphs/returns_dist.png')
+    for column, filename in [("Open", "open_trend.png"), ("Close", "close_trend.png"),
+                             ("High", "high_trend.png"), ("Low", "low_trend.png")]:
+        fig = plt.figure(figsize=(10, 6))
+        plt.plot(scaled[column])
+        plt.title(f"{column} Price Over Time")
+        plt.xlabel("Date")
+        plt.ylabel(f"Scaled {column} Price")
+        saved.append(_save(fig, out_dir, filename))
+
+    fig = plt.figure(figsize=(8, 6))
+    sns.heatmap(df[["Open", "High", "Low", "Close", "Volume"]].corr(), annot=True, cmap="coolwarm")
+    plt.title("Correlation Matrix")
+    plt.tight_layout()
+    saved.append(_save(fig, out_dir, "correlation_matrix.png"))
+
+    ind = add_indicators(df)
+
+    fig = plt.figure(figsize=(14, 7))
+    plt.plot(ind["Volatility"])
+    plt.title("Rolling 21-bar Volatility of Open Returns")
+    plt.xlabel("Date")
+    plt.ylabel("Volatility")
+    saved.append(_save(fig, out_dir, "open_volatality.png"))
+
+    fig = plt.figure(figsize=(14, 7))
+    plt.plot(ind["Open"], label="Open Price")
+    plt.plot(ind["SMA_20"], label="20-bar SMA")
+    plt.plot(ind["SMA_50"], label="50-bar SMA")
+    plt.title("Open Price with Moving Averages")
+    plt.legend()
+    saved.append(_save(fig, out_dir, "open_price_moving_avgs.png"))
+
+    fig = plt.figure(figsize=(10, 6))
+    sns.histplot(ind["Returns"].dropna(), bins=50, kde=True)
+    plt.title("Distribution of Hourly Returns")
+    plt.xlabel("Returns")
+    plt.ylabel("Frequency")
+    saved.append(_save(fig, out_dir, "returns_dist.png"))
+
+    return saved
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Exploratory data analysis charts.")
+    parser.add_argument("--data", default="data.csv")
+    parser.add_argument("--out-dir", default="EDA_distribution_graphs")
+    args = parser.parse_args(argv)
+    run_eda(load_data(args.data), args.out_dir)
+
+
+if __name__ == "__main__":
+    main()

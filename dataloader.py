@@ -1,22 +1,26 @@
-import torch
-from torch.utils.data import Dataset, DataLoader
-import yfinance as yf
 import numpy as np
-import pandas as pd
+import torch
+from torch.utils.data import DataLoader, Dataset
+
+from data_utils import create_sequences, load_data
+
 
 def lstm_create_sequences(data, seq_length):
-    xs, ys = list(), list()
-    for i in range(len(data) - seq_length):
-        x = data[i:i + seq_length]
-        y = data[i + seq_length, 0] # open price
-        xs.append(x)
-        ys.append(y)
-    return np.array(xs), np.array(ys)
+    """Backwards-compatible alias: targets the first column (Open price)."""
+    return create_sequences(data, seq_length, target_col=0)
+
 
 class StockDataset(Dataset):
-    def __init__(self, features, targets):
-        self.features = torch.tensor(features, dtype=torch.float32)
-        self.targets  = torch.tensor(targets, dtype=torch.float32).unsqueeze(1)
+    """Wraps (features, targets) arrays as float32 tensors for a DataLoader."""
+
+    def __init__(self, features: np.ndarray, targets: np.ndarray):
+        if len(features) != len(targets):
+            raise ValueError(
+                f"features and targets must have the same length "
+                f"({len(features)} != {len(targets)})"
+            )
+        self.features = torch.tensor(np.asarray(features), dtype=torch.float32)
+        self.targets = torch.tensor(np.asarray(targets), dtype=torch.float32).reshape(-1, 1)
 
     def __len__(self):
         return len(self.features)
@@ -24,15 +28,11 @@ class StockDataset(Dataset):
     def __getitem__(self, idx):
         return self.features[idx], self.targets[idx]
 
-if __name__ == '__main__':
-    df = pd.read_csv('data.csv')
-    df['Datetime'] = pd.to_datetime(df['Datetime'])
-    df.set_index('Datetime', inplace=True)
+
+if __name__ == "__main__":
+    df = load_data("data.csv")
     print(df)
-    X, y = lstm_create_sequences(df.values, 1)
-    dataset = StockDataset(X, y)
-    dataloader = DataLoader(dataset, batch_size=1, shuffle=False)
-    exit()
-    for x,y in dataloader:
-        print(x)
-        print(y)
+    X, y = lstm_create_sequences(df.values, 10)
+    loader = DataLoader(StockDataset(X, y), batch_size=32, shuffle=False)
+    features, targets = next(iter(loader))
+    print(f"{len(loader.dataset)} samples; first batch X={tuple(features.shape)}, y={tuple(targets.shape)}")
