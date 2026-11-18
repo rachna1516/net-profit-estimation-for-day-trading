@@ -24,7 +24,7 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
-(`environment.yml` is the original Linux/CUDA conda environment.)
+(`environment.linux-cuda.yml` is the original Linux/CUDA conda environment. It is deliberately not named `environment.yml`, because Streamlit Community Cloud would use that instead of `requirements.txt`.)
 
 ## Usage
 
